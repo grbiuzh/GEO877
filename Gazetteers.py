@@ -1,20 +1,20 @@
-import geocoder as geo #Geonames gazetteer
+from geopy.geocoders import GeoNames #GeoNames Gazetteer
 import numpy as np
 import matplotlib as mat
-import nltk as nlp
 
-import geopandas as gpd
+#GeoNames access
+geo = GeoNames(username= "me_toponymboy")
 
-
-# Link to european gazetteer: https://www.mapsforeurope.org/access-data
-#It is to large to share on Github
-
-# Or as WFS
-# Your Token
-# ImV1cm9nZW9ncmFwaGljc19yZWdpc3RlcmVkXzE2MjIi.FTmabg.tMcw7-tbRuKigswHCQWgYuhkRiI
-# Open Gazetteer - WFS
-# https://www.mapsforeurope.org/api/v2/maps/external/wfs/open-gazetteer?SERVICE=WFS&VERSION=1.1.0&REQUEST=GetCapabilities&token=ImV1cm9nZW9ncmFwaGljc19yZWdpc3RlcmVkXzE2MjIi.FTmabg.tMcw7-tbRuKigswHCQWgYuhkRiI
+# Marine Regions Data
+"https://geo.vliz.be/geoserver/MarineRegions/wfs"
 
 
-data = gpd.read_file("/Users/chaualala/Desktop/UZH/MSc Geographie/2. Semester/GEO877 - Spatial Algorithms/GEO877/open-gazetteer-gpkg/data/open_regional_gazetteer_2021.gpkg")
-data.head()
+#Code
+
+# get location information
+latitude, longitude = 23.765328, 90.358641 #enter your desired value
+location = geo.reverse(query=(latitude, longitude), exactly_one=False, timeout=5)
+# get location name
+location_name = location[0]
+# print location name
+print(location_name)
