@@ -19,6 +19,7 @@ class DiscoBall():
         self.n_lon = n * 2
 
         self.cells = []
+        self.shape = []
 
         self._compute_cells()
 
@@ -52,34 +53,32 @@ Standard deviation of area of cells:  {int(self.sd)} km2'''
 
         rows = []
 
+        cell_height = 180 / self.n_lat
+        equatorial_cell_width = 360 / self.n_lon
+        cell_area = self._cell_area(Point(0, 0), Point(equatorial_cell_width, cell_height))
+
         for i in numpy.linspace(0, 90, int(self.n_lat / 2), endpoint=False):
             rows.append(Point(0, i))
-            rows.insert(0, Point(0, -i - (180 / self.n_lat)))
-
-        equatorial_cell_area = self._cell_area(Point(0, 0), Point(360 / self.n_lon, 90 / self.n_lat))
+            rows.insert(0, Point(0, -i - cell_height))
 
         cells = []
 
         for row in rows:
 
             ll = row
-            ur = Point(ll.x + 360 / self.n_lon, ll.y + 90 / self.n_lat)
+            ur = Point(ll.x + equatorial_cell_width, ll.y + cell_height)
             row_area = self._cell_area(ll, ur) * self.n_lon
 
-            n_cells = row_area // equatorial_cell_area
+            n_cells = row_area // cell_area
             cell_width = 360 / n_cells
 
             cell_row = []
 
             for i in numpy.linspace(0, 360, int(n_cells), endpoint=False):
-                cell_row.append([
-                    Point(i, ll.y),
-                    Point(i + cell_width, ll.y),
-                    Point(i + cell_width, ll.y + (180 / self.n_lat)),
-                    Point(i, ll.y + (180 / self.n_lat))
-                    ])
+                cell_row.append([Point(i, ll.y), Point(i + cell_width, ll.y + cell_height)])
 
             self.cells.append(cell_row)
+            self.shape.append({'y_min':ll.y, 'y_max':ur.y, 'n_cells':int(n_cells), 'cell_width':cell_width})
 
 
     def _statisics(self):
@@ -90,7 +89,7 @@ Standard deviation of area of cells:  {int(self.sd)} km2'''
 
         for row in self.cells:
             for cell in row:
-                area = self._cell_area(cell[0], cell[2])
+                area = self._cell_area(cell[0], cell[1])
                 oldm = m
                 olds = s
                 k += 1
@@ -108,16 +107,18 @@ Standard deviation of area of cells:  {int(self.sd)} km2'''
 
         for row in self.cells:
             for cell in row:
-                lat, lon = [], []
-                for point in cell:
-                    lat.append(point.y)
-                    lon.append(point.x)
+                ll = cell[0]
+                ur = cell[1]
+                lat = [ll.y, ll.y, ur.y, ur.y]
+                lon = [ll.x, ur.x, ur.x, ll.x]
                 data.append(
                     go.Scattergeo(lat = lat, lon = lon, mode = 'lines', line = dict(width = 1)))
 
         fig = go.Figure(data=data)
 
         fig.update_geos(projection_type="orthographic")
-        fig.update_layout(height=height, margin={"r":0,"t":0,"l":0,"b":0})
+        fig.update_layout(height=height, margin={"r":0,"t":0,"l":0,"b":0}, showlegend=False)
 
         fig.show()
+
+        print(self)
