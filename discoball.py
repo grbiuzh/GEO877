@@ -284,11 +284,11 @@ SD of area of cells:    {int(self.area_sd)} km2'''
 
                 cell_index = row['start_index'] + j
 
-                if len(self.bucket[cell_index]) != 0:
-
-                    for point in self.bucket[cell_index]:
-                        data.append(go.Scattergeo(lat = [point.y], lon = [point.x],
-                            mode = 'markers', marker = dict(size = 5, color='black')))
+#                if len(self.bucket[cell_index]) != 0:
+#
+#                    for point in self.bucket[cell_index]:
+#                        data.append(go.Scattergeo(lat = [point.y], lon = [point.x],
+#                            mode = 'markers', marker = dict(size = 5, color='black')))
 
                 if self.layer_density[cell_index] != None:
                     opacity = self.layer_density[cell_index]
