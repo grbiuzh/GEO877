@@ -1,28 +1,29 @@
 import numpy as np
-import plotly.graph_objects as go
+import json
 from PIL import Image
-from sklearn.preprocessing import quantile_transform
+from tqdm import tqdm
+#import plotly.graph_objects as go
 
 class Point():
     
-    def __init__(self, x=None, y=None):
+    def __init__(self, lon=None, lat=None):
 
-        self.x = x
-        self.y = y
+        self.lon = lon
+        self.lat = lat
         
     def __repr__(self):
 
-        return f'Point(x = {self.x}, y = {self.y})'
+        return f'Point(x = {self.lon}, lat = {self.lat})'
 
 
     def distance(self, other):
         """Return Haversine distance between two points"""
 
         r = 6371
-        phi1 = np.radians(self.y) # latitudes
-        phi2 = np.radians(other.y)
-        lam1 = np.radians(self.x) # longitudes
-        lam2 = np.radians(other.x)
+        phi1 = np.radians(self.lat) # latitudes
+        phi2 = np.radians(other.lat)
+        lam1 = np.radians(self.lon) # longitudes
+        lam2 = np.radians(other.lon)
 
         d = 2 * r * np.arcsin(np.sqrt(np.sin((phi2 - phi1) / 2)**2 +
             np.cos(phi1) * np.cos(phi2) * np.sin((lam2 - lam1) / 2)**2))
@@ -54,6 +55,9 @@ class DiscoBall():
         self.key = []       # Geometry key
         self.bucket = []    # Cell-wise point container
         self.layers = {}    # Raster layers (cell values)
+
+        # Container for border cells
+        self.ocean_border_cells = []
 
         # Initialize raster
         self._compute_raster_geometry()
@@ -98,10 +102,10 @@ SD of area of cells:    {int(self.area_sd)} km2'''
 
         # Maths on surface integral: https://www.sharetechnote.com/html/Calculus_Integration_Surface.html
 
-        d_theta = abs(np.radians(ll.x) - np.radians(ur.x))    # longitudinal arc length
-        d_phi = abs(np.radians(ll.y) - np.radians(ur.y))      # latitudinal arc length
+        d_theta = abs(np.radians(ll.lon) - np.radians(ur.lon))    # longitudinal arc length
+        d_phi = abs(np.radians(ll.lat) - np.radians(ur.lat))      # latitudinal arc length
 
-        phi = np.radians(((ll.y + ur.y) / 2) * (-1) + 90)     # average latitudinal angle of cell (north pole = 0°; south pole = 180°)
+        phi = np.radians(((ll.lat + ur.lat) / 2) * (-1) + 90)     # average latitudinal angle of cell (north pole = 0°; south pole = 180°)
 
         area = np.sin(phi) * d_phi * d_theta * self.sphere_radius**2
 
@@ -127,8 +131,8 @@ SD of area of cells:    {int(self.area_sd)} km2'''
         # Create row-specific geometry keys for equal area cells
         for ll in start_lls:
 
-            ur = Point(ll.x + equatorial_cell_width, ll.y + self.cell_height)
-            row_area = self._compute_cell_area(ll, ur) * self.n_lon
+            ur = Point(ll.lon + equatorial_cell_width, ll.lat + self.cell_height)
+            row_area = self._compute_cell_area(ll, ur) * self.n_lon    # Area of a horizontal band around the earth
 
             cell_quantity = int(row_area // equatorial_cell_area)
             cell_width = 360 / cell_quantity
@@ -146,8 +150,17 @@ SD of area of cells:    {int(self.area_sd)} km2'''
     def _compute_point_cell_location(self, point):
         """Find cell index for point location"""
 
-        row_index = int((point.y + 90) // self.cell_height)
-        cell_index = int(self.key[row_index]['start_index'] + (point.x // self.key[row_index]['cell_width']))
+        # Map [-180:180] to [0:360] by substracting the negative longitudes from 360°
+        if point.lon < 0:
+            point.lon = 360 + point.lon
+
+        if point.lon == 0 and point.lat == 90:    # TODO: Handle this exception more elegantly
+            cell_index = self.k - 1
+
+        else:
+            # Map [-90:90] to [0:180] by adding 90°
+            row_index = int((point.lat + 90) // self.cell_height)
+            cell_index = int(self.key[row_index]['start_index'] + (point.lon // self.key[row_index]['cell_width']))
 
         return cell_index
 
@@ -165,7 +178,7 @@ SD of area of cells:    {int(self.area_sd)} km2'''
     def _compute_cell_row(self, cell_index):
         """Returns row index given a cell index"""
 
-        # Compute first row estimate based on product of average cell area and cell index
+        # Compute a first row estimate based on product of average cell area and cell index
         # The product represents an estimate of the area filled up to the row we are looking for
         row = int(((((cell_index * self.area_mean) / self.sphere_area) / 2) * 360) // self.cell_height)
 
@@ -191,10 +204,13 @@ SD of area of cells:    {int(self.area_sd)} km2'''
         if row == None:
             row = self._compute_cell_row(cell_index)
 
-        centroid_x = ((cell_index - self.key[row]['start_index']) * self.key[row]['cell_width']) + (self.key[row]['cell_width'] / 2)
-        centroid_y = row * self.cell_height + (self.cell_height / 2) - 90
+        # Total width of cells on the left of target cell plus half a cell to reach the middle of the cell
+        centroid_lon = ((cell_index - self.key[row]['start_index']) * self.key[row]['cell_width']) + (self.key[row]['cell_width'] / 2)
+        # Total width of cells below the target cell plus half a cell to reach the middle of the cell
+        centroid_lat = row * self.cell_height + (self.cell_height / 2) - 90
 
-        centroid = Point(centroid_x, centroid_y)
+        # Create a point entity for the centroid
+        centroid = Point(centroid_lon, centroid_lat)
 
         return centroid
 
@@ -214,13 +230,13 @@ SD of area of cells:    {int(self.area_sd)} km2'''
 
         reach = int(window_size // 2)    # Numbers of cells left/right/above/below a cell
 
-        # Check if a window can be drawn (border issue)
+        # Check if a window can be drawn (raster edge issue)
         if (row - reach) < 0 or (row + reach + 1) > len(self.key):
             raise IndexError('Entire window must be inside of raster')
 
         # Iterate through window vertically
         for i in range(row - reach, row + reach + 1):
-            center_cell = int((centroid.x // self.key[i]['cell_width']) + self.key[i]['start_index'])
+            center_cell = int((centroid.lon // self.key[i]['cell_width']) + self.key[i]['start_index'])
 
             # Iterate through window horizontally
             for j in range(center_cell - reach, center_cell + reach + 1):
@@ -282,37 +298,101 @@ SD of area of cells:    {int(self.area_sd)} km2'''
         start_cell_index = self.key[reach]['start_index']
         stop_cell_index = self.key[len(self.key) - reach]['start_index']
 
-        start_cells = []     # Placeholders (NoneType)
-        middle_cells = []    # Cells with value
-        end_cells = []       # Placeholders (NoneType)
+        density_layer = []
 
         for cell_index in range(start_cell_index):
-            start_cells.append(None)
+            density_layer.append(0)
 
         # Compute point density for relevant cells
-        for cell_index in range(start_cell_index, stop_cell_index):
+        for cell_index in tqdm(range(start_cell_index, stop_cell_index)):    # Use tqdm module for progress bar
             density = self._compute_cell_point_density(cell_index, search_radius, window_size)
-            middle_cells.append(density)
+            density_layer.append(density)
 
         for cell_index in range(stop_cell_index, self.k):
-            end_cells.append(None)
+            density_layer.append(0)
 
-        # Compile layer
-        density_layer = start_cells + middle_cells + end_cells
-
-        # Scale cells with values
-        middle_cells = quantile_transform(np.array(middle_cells).reshape(-1, 1), n_quantiles=256, random_state=0, copy=True).reshape(1, -1).tolist()[0]
-
-        # Compile layer
-        density_layer_scaled = start_cells + middle_cells + end_cells
-
-        # Save layers to dictionary
+        # Save layer to dictionary
         self.layers['density'] = density_layer
-        self.layers['density_scaled'] = density_layer_scaled
+
+
+    def classify_layer(self, layer, n_quantiles, bins=None):
+        """Classify layer using quantiles"""
+
+        layer_raw = np.array(self.layers[layer])
+
+        # Use user-specified bins if given as argument
+        if bins == None:
+            bins = []
+
+            layer_nozeros = np.sort(layer_raw[layer_raw != 0])
+
+            # Find the values of the first and last cell of each bin
+            for i in range(1, n_quantiles):
+                index = (len(layer_nozeros) // n_quantiles) * i
+                value = layer_nozeros[index]
+                bins.append(value)
+
+            bins.insert(0, layer_nozeros[0])    # lowest value
+            bins.append(layer_nozeros[-1])      # highest value
+
+        else:
+            bins = bins
+
+        # Classify into bins
+        layer_classified = np.digitize(layer_raw, bins)
+
+        # Save layer to dictionary
+        self.layers[layer + '_classified'] = layer_classified
+
+        # Return bins to use in further classifications
+        return bins
+
+
+    def save_layer(self, layername, filepath):
+        """Save layer to text file"""
+
+        with open(filepath, 'w') as f:
+            for item in self.layers[layername]:
+                f.write("%s\n" % item)
+
+
+    def read_layer(self, layername, filepath):
+        """Load layer from text file"""
+
+        layer = []
+
+        with open(filepath, 'r') as f:
+            for line in f:
+                value = line[:-1]
+                if value == 'None':
+                    layer.append(None)
+                else:
+                    layer.append(float(value))
+
+        self.layers[layername] = layer
+
+
+    def load_ocean_borders(self, filepath):
+        """Load points for border and extract the corresponding raster cells"""
+
+        f = open(filepath, 'r')
+        data = json.load(f)
+        f.close()
+
+        for i in data['features']:
+            coordinates = i['geometry']['coordinates']
+            point = Point(coordinates[0], coordinates[1])
+            cell = self._compute_point_cell_location(point)
+            self.ocean_border_cells.append(cell)
+
+        self.ocean_border_cells = set(self.ocean_border_cells)
 
 
     def create_image_from_layer(self, layer):
-        """Projects layer into 2 dimensional space and saves it as PNG file"""
+        """Projects layer into 2D and saves it as PNG file"""
+
+        # Color palette according to Acheson et al. 2017
+        color_key = {0: (255,255,255), 1: (252,208,163), 2: (253,174,107), 3: (241,105,19), 4: (215,72,1), 5: (141,45,3)}
 
         # Equatorial cell as reference for pixel size
         equatorial_row = int(len(self.key) / 2)
@@ -321,31 +401,34 @@ SD of area of cells:    {int(self.area_sd)} km2'''
         equatorial_cell_width = equatorial_row_key['cell_width']
         equatorial_cell_quantity = equatorial_row_key['cell_quantity']
 
-        centroid_x_list = []
+        centroid_lon_list = []
 
-        # List of x centeroids of all equatorial cells
+        # List of lon centeroids of all equatorial cells
         for cell in range(equatorial_start_index, equatorial_start_index + equatorial_cell_quantity):
             equatorial_centroid = self._compute_cell_centroid(cell, row=equatorial_row)
-            centroid_x_list.append(equatorial_centroid.x)
+            centroid_lon_list.append(equatorial_centroid.lon)
+
+        # Move left edge of image to Pacific Ocean (180°) instead of Europe (0°) 
+        centroid_lon_list = centroid_lon_list[len(centroid_lon_list) // 2:] + centroid_lon_list[:len(centroid_lon_list) // 2]
 
         image_raster = []
 
-        # Iterate through each row and create y centroids
+        # Iterate through each row and create lat centroids
         for i, row in enumerate(self.key):
-            centroid_y = (i * self.cell_height) + (self.cell_height / 2) - 90
+            centroid_lat = (i * self.cell_height) + (self.cell_height / 2) - 90
 
             image_row = []
 
-            # Iterate through each equatorial x centroid and map it onto the raster
-            for j, centroid_x in enumerate(centroid_x_list):
-                centroid = Point(centroid_x, centroid_y)
+            # Iterate through each equatorial lon centroid and map it onto the raster
+            for j, centroid_lon in enumerate(centroid_lon_list):
+                centroid = Point(centroid_lon, centroid_lat)
                 cell_index = self._compute_point_cell_location(centroid)
                 pixel_value = self.layers[layer][cell_index]
-                if pixel_value == None:
-                    color_value = 0
+                if cell_index in self.ocean_border_cells:
+                    rgb = (0,0,0)    # black
                 else:
-                    color_value = int(pixel_value * 255)
-                image_row.append((color_value, color_value, color_value))
+                    rgb = color_key[pixel_value]
+                image_row.append(rgb)
 
             image_raster.insert(0, image_row)
 
@@ -355,42 +438,42 @@ SD of area of cells:    {int(self.area_sd)} km2'''
         image.save(layer + '.png')
 
 
-    def display_density_layer(self, height=500):
-        """Visualize layer and points using plotly (for development purposes)"""
+    # def display_density_layer(self, height=500):
+    #     """Visualize layer and points using plotly (for development purposes)"""
 
-        if self.resolution_km < 500:
-            raise Exception('Resoltion too high for visualization')
+    #     if self.resolution_km < 500:
+    #         raise Exception('Resoltion too high for visualization')
 
-        data = []
+    #     data = []
 
-        for i, row in enumerate(self.key):
-            for j in range(row['cell_quantity']):
+    #     for i, row in enumerate(self.key):
+    #         for j in range(row['cell_quantity']):
 
-                cell_index = row['start_index'] + j
+    #             cell_index = row['start_index'] + j
 
-                if self.layers['density_scaled'][cell_index] != None:
-                    opacity = self.layers['density_scaled'][cell_index]
-                    color = 'rgba(168, 50, 50, 1)'
-                else:
-                    opacity = 0
-                    color = 'rgba(0, 0, 0, 0)'
+    #             if self.layers['density_scaled'][cell_index] != None:
+    #                 opacity = self.layers['density_scaled'][cell_index]
+    #                 color = 'rgba(168, 50, 50, 1)'
+    #             else:
+    #                 opacity = 0
+    #                 color = 'rgba(0, 0, 0, 0)'
 
-                left = row['cell_width'] * j
-                right = row['cell_width'] * (j + 1)
-                bottom = self.cell_height * i - 90
-                top = self.cell_height * (i + 1) - 90
+    #             left = row['cell_width'] * j
+    #             right = row['cell_width'] * (j + 1)
+    #             bottom = self.cell_height * i - 90
+    #             top = self.cell_height * (i + 1) - 90
 
-                lat = [bottom, top, top, bottom, bottom]
-                lon = [left, left, right, right, left]
+    #             lat = [bottom, top, top, bottom, bottom]
+    #             lon = [left, left, right, right, left]
 
-                data.append(go.Scattergeo(lat = lat, lon = lon,
-                    mode = 'lines', line = dict(width = 1, color='white'), fill='toself', fillcolor=color, opacity=opacity))
+    #             data.append(go.Scattergeo(lat = lat, lon = lon,
+    #                 mode = 'lines', line = dict(width = 1, color='white'), fill='toself', fillcolor=color, opacity=opacity))
 
-        fig = go.Figure(data=data)
+    #     fig = go.Figure(data=data)
 
-        fig.update_geos(projection_type="orthographic")
-        fig.update_layout(height=height, margin={"r":0,"t":0,"l":0,"b":0}, showlegend=False)
+    #     fig.update_geos(projection_type="orthographic")
+    #     fig.update_layout(height=height, margin={"r":0,"t":0,"l":0,"b":0}, showlegend=False)
 
-        fig.show()
+    #     fig.show()
 
-        print(self)
+    #     print(self)
