@@ -388,11 +388,11 @@ SD of area of cells:    {int(self.area_sd)} km2'''
         self.ocean_border_cells = set(self.ocean_border_cells)
 
 
-    def create_image_from_layer(self, layer):
+    def create_image_from_layer(self, layername, filepath):
         """Projects layer into 2D and saves it as PNG file"""
 
-        # Color palette according to Acheson et al. 2017
-        color_key = {0: (255,255,255), 1: (252,208,163), 2: (253,174,107), 3: (241,105,19), 4: (215,72,1), 5: (141,45,3)}
+        # Color palette according to Acheson et al. 2017 (for 5 classes only!)
+        color_key = {0: (255,255,255), 1: (252,208,163), 2: (253,174,107), 3: (241,105,19), 4: (215,72,1), 5: (141,45,3), 6: (141,45,3)}
 
         # Equatorial cell as reference for pixel size
         equatorial_row = int(len(self.key) / 2)
@@ -423,7 +423,7 @@ SD of area of cells:    {int(self.area_sd)} km2'''
             for j, centroid_lon in enumerate(centroid_lon_list):
                 centroid = Point(centroid_lon, centroid_lat)
                 cell_index = self._compute_point_cell_location(centroid)
-                pixel_value = self.layers[layer][cell_index]
+                pixel_value = self.layers[layername][cell_index]
                 if cell_index in self.ocean_border_cells:
                     rgb = (0,0,0)    # black
                 else:
@@ -435,7 +435,7 @@ SD of area of cells:    {int(self.area_sd)} km2'''
         # Compile image
         image_array = np.array(image_raster, dtype=np.uint8)
         image = Image.fromarray(image_array)
-        image.save(layer + '.png')
+        image.save(filepath)
 
 
     # def display_density_layer(self, height=500):
