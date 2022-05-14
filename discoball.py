@@ -28,7 +28,7 @@ class Point():
         d = 2 * r * np.arcsin(np.sqrt(np.sin((phi2 - phi1) / 2)**2 +
             np.cos(phi1) * np.cos(phi2) * np.sin((lam2 - lam1) / 2)**2))
 
-        return d        
+        return d
 
 
 class DiscoBall():
@@ -72,8 +72,8 @@ class DiscoBall():
 
 Number of cells:        {self.k}
 Number of rows:         {len(self.key)}
-Mean area of cells:     {int(self.area_mean)} km2
-SD of area of cells:    {int(self.area_sd)} km2'''
+Mean area of cells:     {self.area_mean:.2f} km2
+SD of area of cells:    {self.area_sd:.2f} km2'''
 
 
     def _statisics(self):
@@ -138,13 +138,11 @@ SD of area of cells:    {int(self.area_sd)} km2'''
             cell_width = 360 / cell_quantity
             cell_area = row_area / cell_quantity
 
-            for cell in range(cell_quantity):
-                self.bucket.append([])
-                cell_index += 1
-
-            start_index = cell_index - cell_quantity
+            start_index = cell_index
+            cell_index += cell_quantity
 
             self.key.append({'start_index':start_index, 'cell_width':cell_width, 'cell_area':cell_area, 'cell_quantity':cell_quantity})
+        self.bucket = [[] for i in range(cell_index)]
 
 
     def _compute_point_cell_location(self, point):
@@ -257,24 +255,20 @@ SD of area of cells:    {int(self.area_sd)} km2'''
         row = self._compute_cell_row(cell_index)
         centroid = self._compute_cell_centroid(cell_index, row=row)
         window = self._compute_cell_window(cell_index, window_size, row=row, centroid=centroid)
-        points = []
-
-        # Create a list of all points relevant for the density computation
-        for cell_index in window:
-            for point in self.bucket[cell_index]:
-                points.append(point)
 
         s = 0
 
+        # Iterate through all the points in the cells in the window
         # Compute density according to equation provided by ArcGIS
         # (https://doc.arcgis.com/en/insights/latest/analyze/calculate-density.htm)
-        for point in points:
-            distance = centroid.distance(point)
-            if distance <= search_radius:
-                a = (1 - (distance / search_radius)**2)**2
-                b = a * 3 / np.pi
+        for cell_index in window:
+            for point in self.bucket[cell_index]:
+                distance = centroid.distance(point)
+                if distance <= search_radius:
+                    a = (1 - (distance / search_radius)**2)**2
+                    b = a * 3 / np.pi
 
-                s += b
+                    s += b
 
         rho = (1 / search_radius**2) * s
 
@@ -355,8 +349,10 @@ SD of area of cells:    {int(self.area_sd)} km2'''
             for item in self.layers[layername]:
                 f.write("%s\n" % item)
 
+        print(f'Layer saved: {filepath}')
 
-    def read_layer(self, layername, filepath):
+
+    def load_layer(self, layername, filepath):
         """Load layer from text file"""
 
         layer = []
@@ -371,8 +367,10 @@ SD of area of cells:    {int(self.area_sd)} km2'''
 
         self.layers[layername] = layer
 
+        print(f'Layer loaded: {filepath}')
 
-    def load_ocean_borders(self, filepath):
+
+    def load_boundaries(self, filepath):
         """Load points for border and extract the corresponding raster cells"""
 
         f = open(filepath, 'r')
@@ -386,6 +384,8 @@ SD of area of cells:    {int(self.area_sd)} km2'''
             self.ocean_border_cells.append(cell)
 
         self.ocean_border_cells = set(self.ocean_border_cells)
+
+        print(f'Boundaries loaded: {filepath}')
 
 
     def create_image_from_layer(self, layername, filepath):
@@ -436,6 +436,8 @@ SD of area of cells:    {int(self.area_sd)} km2'''
         image_array = np.array(image_raster, dtype=np.uint8)
         image = Image.fromarray(image_array)
         image.save(filepath)
+
+        print(f'Image saved: {filepath}')
 
 
     # def display_density_layer(self, height=500):
