@@ -13,7 +13,7 @@ class Point():
         
     def __repr__(self):
 
-        return f'Point(x = {self.lon}, lat = {self.lat})'
+        return f'Point(lon = {self.lon}, lat = {self.lat})'
 
 
     def distance(self, other):
@@ -171,6 +171,20 @@ SD of area of cells:    {self.area_sd:.2f} km2'''
             cell_index = self._compute_point_cell_location(point)
 
         self.bucket[cell_index].append(point)
+
+
+    def add_multiple_points_to_raster(self, filepath, key=None):
+        """Iterate through all point coordinates in a json dataset and add to raster"""
+
+        with open(filepath, 'r') as f:
+            data = json.load(f)
+            if key != None:
+                data = data[key]
+            for point in data:
+                point = Point(point[1], point[0])
+                self.add_point_to_raster(point)
+
+        print(f'{len(data)} points added to the raster')
 
 
     def _compute_cell_row(self, cell_index):
@@ -332,6 +346,9 @@ SD of area of cells:    {self.area_sd:.2f} km2'''
         else:
             bins = bins
 
+            if max(self.layers[layer]) > bins[-1]:
+                bins[-1] = max(self.layers[layer])
+
         # Classify into bins
         layer_classified = np.digitize(layer_raw, bins)
 
@@ -438,44 +455,4 @@ SD of area of cells:    {self.area_sd:.2f} km2'''
         image.save(filepath)
 
         print(f'Image saved: {filepath}')
-
-
-    # def display_density_layer(self, height=500):
-    #     """Visualize layer and points using plotly (for development purposes)"""
-
-    #     if self.resolution_km < 500:
-    #         raise Exception('Resoltion too high for visualization')
-
-    #     data = []
-
-    #     for i, row in enumerate(self.key):
-    #         for j in range(row['cell_quantity']):
-
-    #             cell_index = row['start_index'] + j
-
-    #             if self.layers['density_scaled'][cell_index] != None:
-    #                 opacity = self.layers['density_scaled'][cell_index]
-    #                 color = 'rgba(168, 50, 50, 1)'
-    #             else:
-    #                 opacity = 0
-    #                 color = 'rgba(0, 0, 0, 0)'
-
-    #             left = row['cell_width'] * j
-    #             right = row['cell_width'] * (j + 1)
-    #             bottom = self.cell_height * i - 90
-    #             top = self.cell_height * (i + 1) - 90
-
-    #             lat = [bottom, top, top, bottom, bottom]
-    #             lon = [left, left, right, right, left]
-
-    #             data.append(go.Scattergeo(lat = lat, lon = lon,
-    #                 mode = 'lines', line = dict(width = 1, color='white'), fill='toself', fillcolor=color, opacity=opacity))
-
-    #     fig = go.Figure(data=data)
-
-    #     fig.update_geos(projection_type="orthographic")
-    #     fig.update_layout(height=height, margin={"r":0,"t":0,"l":0,"b":0}, showlegend=False)
-
-    #     fig.show()
-
-    #     print(self)
+        
