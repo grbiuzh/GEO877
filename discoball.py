@@ -63,7 +63,7 @@ class DiscoBall():
         self._compute_raster_geometry()
 
         # Cell area statistics
-        self.area_mean, self.area_sd, self.k = self._statisics()
+        self.area_mean, self.area_sd, self.k = self._statistics()
         
 
     def __repr__(self):
@@ -76,7 +76,7 @@ Mean area of cells:     {self.area_mean:.2f} km2
 SD of area of cells:    {self.area_sd:.2f} km2'''
 
 
-    def _statisics(self):
+    def _statistics(self):
         """Returns cell area statistics"""
 
         m = 0
@@ -123,7 +123,7 @@ SD of area of cells:    {self.area_sd:.2f} km2'''
 
         # Establish raster rows
         for i in np.linspace(0, 90, int(self.n_lat / 2), endpoint=False):
-            start_lls.append(Point(0, i))                            # Norhtern hemisphere
+            start_lls.append(Point(0, i))                            # Northern hemisphere
             start_lls.insert(0, Point(0, - i - self.cell_height))    # Southern hemisphere
 
         cell_index = 0
